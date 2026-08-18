@@ -1,5 +1,5 @@
 [package]
-name = "PROJET_BDDA"
+name = "mini-rdbms"
 version = "0.1.0"
 edition = "2021"
 

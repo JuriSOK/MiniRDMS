@@ -3,5 +3,8 @@ target/
 
 res/dbpath/BinData/*
 !res/dbpath/BinData/.gitkeep
+res/dbpath/dm.save
+res/dbpath/databases.json
+res/fichier_test_buffermanager
 
 .DS_Store
