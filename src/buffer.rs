@@ -61,8 +61,6 @@ impl Buffer {
         buf.read_f32()
     }
 
-    //maybe do better / less redundant for string methods?
-
     pub fn write_string(&mut self, pos: usize, val: &str, size: usize) -> Result<()> {
         let mut buf = self.buffer.borrow_mut();
         check_space(&buf, val.len())?;
@@ -85,7 +83,7 @@ impl Buffer {
     }
 
     pub fn get_mut_buffer(&self) -> RefMut<'_, ByteBuffer> {
-        self.buffer.borrow_mut() // Retourne l'emprunt mutable
+        self.buffer.borrow_mut()
     }
 }
 
@@ -124,7 +122,7 @@ mod tests {
     fn test_write_read_string() {
         let mut buffer = ByteBuffer::new();
         buffer.resize(32);
-        //let buffer : Vec<u8> = Vec::with_capacity(32);
+
         let refcbuffer = RefCell::new(buffer);
         let mut buffer2 = Buffer::new(&Rc::new(refcbuffer));
 

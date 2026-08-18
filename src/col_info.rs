@@ -4,10 +4,6 @@ pub struct ColInfo {
     column_type: String,
 }
 impl ColInfo {
-    //Le fait d'utiliser &str au lieu de string dans les arguments permet de pouvoir utiliser des chaînes littérales,
-    //Exemple :
-    // let column_name = "id";    column_name est de type &str
-    // let column_type = "Int";  column_type est aussi de type &str
     pub fn new(name: String, column_type: String) -> Self {
         ColInfo {
             name: String::from(name),
