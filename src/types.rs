@@ -1,3 +1,5 @@
+//! Comparable operand types used by condition evaluation.
+
 use std::any::Any;
 use std::fmt::Debug;
 
@@ -27,6 +29,7 @@ impl Clone for Box<dyn Operand> {
 }
 
 impl Number {
+    /// Parses a numeric operand used by WHERE comparisons.
     pub fn new(s: &str) -> Self {
         Self {
             value: s.parse::<f64>().unwrap_or(0.0),
@@ -68,6 +71,7 @@ impl Operand for Number {
 }
 
 impl Chars {
+    /// Creates a string operand used by WHERE comparisons.
     pub fn new(s: &str) -> Self {
         Self {
             value: s.to_string(),
@@ -134,7 +138,7 @@ mod tests {
 
     #[test]
     fn test_invalid_number() {
-        let invalid_num = Number::new("pas_nombre");
+        let invalid_num = Number::new("not_a_number");
         let valid_num = Number::new("10.0");
 
         assert_eq!(invalid_num.compare(Box::new(valid_num.clone())), -1);

@@ -1,5 +1,6 @@
-use std::fs::File;
+//! Loads database settings from JSON and exposes them to storage managers.
 
+use std::fs::File;
 pub struct DBConfig {
     dbpath: String,
     pagesize: u32,
@@ -9,6 +10,7 @@ pub struct DBConfig {
 }
 
 impl DBConfig {
+    /// Creates a configuration object shared by the disk, buffer, and catalog managers.
     pub fn new(
         path: String,
         pagesize: u32,
@@ -25,30 +27,32 @@ impl DBConfig {
         }
     }
 
-    pub fn set_dbpath(&mut self, path: String) {
-        self.dbpath = path;
-    }
-
+    /// Returns the base directory used for database files.
     pub fn get_dbpath(&self) -> &String {
         &self.dbpath
     }
 
+    /// Returns the fixed size of one page in bytes.
     pub fn get_page_size(&self) -> u32 {
         self.pagesize
     }
 
+    /// Returns the maximum size allowed for one data file.
     pub fn get_dm_maxfilesize(&self) -> u32 {
         self.dm_maxfilesize
     }
 
+    /// Returns how many pages the buffer manager can hold.
     pub fn get_bm_buffer_count(&self) -> u32 {
         self.bm_buffer_count
     }
 
+    /// Returns the configured replacement policy, currently `LRU` or `MRU`.
     pub fn get_bm_policy(&self) -> &String {
         &self.bm_policy
     }
 
+    /// Reads `config.json` and converts string values into strongly typed settings.
     pub fn load_db_config(file_config: String) -> DBConfig {
         let file = File::open(file_config).expect("file should open read only test");
         let value: serde_json::Value =

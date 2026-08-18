@@ -1,3 +1,5 @@
+//! Query operators that scan, filter, project, and print records.
+
 use crate::col_info::ColInfo;
 use crate::condition::Condition;
 use crate::record::Record;
@@ -6,8 +8,11 @@ use once_cell::sync::Lazy;
 use std::rc::Rc;
 
 pub trait IRecordIterator {
+    /// Returns the next record or `None` when the iterator is exhausted.
     fn get_next_record(&mut self) -> Option<Record>;
+    /// Releases resources held by the iterator.
     fn close(&mut self);
+    /// Restarts iteration from the beginning when supported.
     fn reset(&mut self);
 }
 
@@ -17,6 +22,7 @@ pub struct RelationScanner {
 }
 
 impl RelationScanner {
+    /// Creates a scanner over an in-memory list of records.
     pub fn new(records: Vec<Record>) -> Self {
         RelationScanner {
             records,
@@ -73,6 +79,7 @@ impl IRecordIterator for SelectOperator {
 }
 
 impl SelectOperator {
+    /// Wraps another iterator and only emits records matching the SELECT conditions.
     pub fn new(
         select: Select,
         child_iterator: Box<dyn IRecordIterator>,
@@ -109,6 +116,7 @@ pub struct ProjectionOperator {
 }
 
 impl ProjectionOperator {
+    /// Wraps another iterator and keeps only the requested columns.
     pub fn new(
         columns_to_project: Vec<String>,
         child_iterator: Box<dyn IRecordIterator>,
@@ -164,10 +172,12 @@ pub struct RecordPrinter<'a> {
 pub static mut ERRORS: Lazy<Vec<String>> = Lazy::new(|| Vec::new());
 
 impl<'a> RecordPrinter<'a> {
+    /// Creates a printer around the final query iterator.
     pub fn new(iterator: Box<dyn IRecordIterator + 'a>) -> Self {
         RecordPrinter { iterator, total: 0 }
     }
 
+    /// Prints each record and then prints either the total count or the first query error.
     pub fn print_records(&mut self) {
         while let Some(record) = self.iterator.get_next_record() {
             self.print_record(&record);

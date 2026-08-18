@@ -1,3 +1,5 @@
+//! SELECT statement parsing, alias validation, and condition construction.
+
 use fancy_regex::Regex;
 use std::{collections::HashSet, str};
 
@@ -14,6 +16,7 @@ pub struct Select {
 }
 
 impl Select {
+    /// Parses a raw SELECT command and validates table aliases.
     pub fn new(command: &str) -> Result<Select, String> {
         let sep_command = Select::split_command(command);
         if sep_command.is_err() {
@@ -32,20 +35,13 @@ impl Select {
         Ok(res)
     }
 
+    /// Returns the FROM table entries, including aliases.
     pub fn get_tables(&self) -> &Vec<String> {
         &self.tables
     }
+    /// Returns the projected column expressions.
     pub fn get_columns(&self) -> &Vec<String> {
         &self.columns
-    }
-
-    pub fn to_string(&self) -> String {
-        format!(
-            "SELECT {}\nFROM {}\nWHERE {}",
-            self.columns.join(", "),
-            self.tables.join(", "),
-            self.conditions.join(" AND ")
-        )
     }
 
     fn split_command(command: &str) -> Result<(Vec<String>, Vec<String>, Vec<String>), String> {
@@ -110,6 +106,7 @@ impl Select {
         Ok((select_elements, from_elements, where_elements))
     }
 
+    /// Ensures every alias used in SELECT appears in the FROM clause.
     pub fn check_alias(&self) -> Result<(), String> {
         let mut from_aliases: HashSet<String> = HashSet::new();
         for table in &self.tables {
@@ -134,6 +131,7 @@ impl Select {
         Ok(())
     }
 
+    /// Builds executable conditions for the current record.
     pub fn get_list_conditions(
         &self,
         columns: &Vec<ColInfo>,

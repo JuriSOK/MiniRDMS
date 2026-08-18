@@ -1,3 +1,5 @@
+//! Buffer pool manager responsible for loading, pinning, replacing, and flushing pages.
+
 use crate::buffer::Buffer;
 use crate::{config::DBConfig, disk_manager::DiskManager, page::PageId, page_info::PageInfo};
 use bytebuffer::ByteBuffer;
@@ -16,6 +18,7 @@ pub struct BufferManager<'a> {
 }
 
 impl<'a> BufferManager<'a> {
+    /// Builds an in-memory buffer pool and attaches it to the disk manager.
     pub fn new(
         db_config: &'a DBConfig,
         disk_manager: DiskManager<'a>,
@@ -47,37 +50,34 @@ impl<'a> BufferManager<'a> {
         }
     }
 
+    /// Returns mutable access to the disk manager for page allocation and deallocation.
     pub fn get_disk_manager_mut(&self) -> RefMut<DiskManager<'a>> {
         self.disk_manager.borrow_mut()
     }
+    /// Returns mutable access to the disk manager for existing call sites.
     pub fn get_disk_manager(&self) -> RefMut<DiskManager<'a>> {
         self.disk_manager.borrow_mut()
     }
 
-    pub fn get_db_config(&self) -> &DBConfig {
-        return self.db_config;
-    }
-
-    pub fn get_page_infos(&self) -> &Vec<PageInfo> {
-        return &self.page_infos;
-    }
-
+    /// Exposes buffer slots for tests that verify pool initialization.
+    #[cfg(test)]
     pub fn get_buffers(&self) -> &Vec<Rc<RefCell<ByteBuffer>>> {
         return &self.buffers;
     }
 
-    pub fn get_clock(&self) -> u64 {
-        return self.clock;
-    }
-
+    /// Exposes the replacement policy for tests.
+    #[cfg(test)]
     pub fn get_replacement_policy(&self) -> String {
         return self.replacement_policy.clone();
     }
 
+    /// Exposes the loaded page count for tests.
+    #[cfg(test)]
     pub fn get_loaded_page_count(&self) -> u32 {
         return self.loaded_page_count;
     }
 
+    /// Chooses the least recently used unpinned page for replacement.
     pub fn lru(&mut self) -> usize {
         let mut index: u32 = 0;
         let mut oldest_page: &PageInfo = &self.page_infos[0];
@@ -104,6 +104,7 @@ impl<'a> BufferManager<'a> {
         }
     }
 
+    /// Chooses the most recently used unpinned page for replacement.
     pub fn mru(&mut self) -> usize {
         let mut index: u32 = 0;
         let mut newest_page: &PageInfo = &self.page_infos[0];
@@ -130,10 +131,7 @@ impl<'a> BufferManager<'a> {
         }
     }
 
-    pub fn set_current_replacement_policy(&mut self, policy: String) {
-        self.replacement_policy = policy;
-    }
-
+    /// Pins and returns a page, loading it from disk or replacing another page if needed.
     pub fn get_page(&mut self, page_id: &PageId) -> Buffer {
         if self.loaded_page_count < self.db_config.get_bm_buffer_count() {
             for i in 0..self.page_infos.len() {
@@ -207,6 +205,7 @@ impl<'a> BufferManager<'a> {
         }
     }
 
+    /// Unpins a page and optionally marks it as dirty so it will be flushed later.
     pub fn free_page(&mut self, page_id: &PageId, bit_dirty: bool) -> () {
         let mut page_info: &mut PageInfo = &mut PageInfo::new(page_id.clone(), 0, false, 0);
         let mut found: bool = false;
@@ -230,6 +229,7 @@ impl<'a> BufferManager<'a> {
         }
     }
 
+    /// Writes every dirty page back to disk and resets the in-memory buffer slots.
     pub fn flush_buffers(&mut self) {
         for i in 0..self.loaded_page_count {
             if self.page_infos[i as usize].get_dirty() == true {
@@ -259,29 +259,6 @@ impl<'a> BufferManager<'a> {
         }
 
         self.buffers = buffers;
-    }
-
-    pub fn print_buffer_state(&self) {
-        println!(
-            "The buffer pool currently holds {} page(s).",
-            self.page_infos.len()
-        );
-
-        for i in 0..self.page_infos.len() {
-            println!(
-                "Slot {}: file idx {}, page idx {}",
-                i,
-                self.page_infos[i].get_page_id().get_file_idx(),
-                self.page_infos[i].get_page_id().get_page_idx()
-            );
-            println!("Pin count: {}", self.page_infos[i].get_pin_count());
-            println!("Dirty bit: {}", self.page_infos[i].get_dirty());
-            println!("Buffer contents: {:?}", self.buffers[i]);
-        }
-
-        if self.page_infos.len() == 0 {
-            println!("The buffer pool is empty.");
-        }
     }
 }
 

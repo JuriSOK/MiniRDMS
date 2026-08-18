@@ -1,3 +1,5 @@
+//! CLI entry point that loads configuration and starts the MiniRDBMS shell.
+
 mod buffer;
 mod buffer_manager;
 mod col_info;

@@ -1,3 +1,5 @@
+//! WHERE-clause condition parsing and evaluation.
+
 use crate::col_info::ColInfo;
 use crate::record::Record;
 use crate::types::{Chars, Number, Operand};
@@ -10,6 +12,7 @@ pub struct PatternError {
     pub message: String,
 }
 impl PatternError {
+    /// Creates a parser error with a human-readable message.
     pub fn new(message: &str) -> Self {
         PatternError {
             message: message.to_string(),
@@ -83,6 +86,7 @@ impl Condition {
         }
     }
 
+    /// Evaluates the condition by comparing its already parsed operands.
     pub fn evaluate(&self) -> bool {
         let right_operand = self.right_operand.clone_box();
 
@@ -108,6 +112,7 @@ impl Condition {
         }
     }
 
+    /// Resolves a column reference to the correctly typed operand for the current record.
     fn choose_operand(
         columns: &Vec<ColInfo>,
         column_name: &str,
@@ -126,6 +131,7 @@ impl Condition {
         }
     }
 
+    /// Parses a WHERE condition string against schema metadata and the current record.
     pub fn check_syntax(
         s: String,
         columns: &Vec<ColInfo>,
@@ -211,6 +217,7 @@ impl Condition {
         }
     }
 
+    /// Converts SQL comparison text into the internal operator enum.
     pub fn to_operator(operator_str: &str) -> Result<Operator, PatternError> {
         match operator_str {
             "=" => {
@@ -416,6 +423,7 @@ impl Condition {
         }
     }
 
+    /// Splits a qualified column name into alias and column parts.
     pub fn split_column(s: &str) -> Result<(String, String), PatternError> {
         match s.split_once('.') {
             Some((left, right)) => {
@@ -439,6 +447,7 @@ impl Condition {
         }
     }
 
+    #[cfg(test)]
     fn get_operator(&self) -> &str {
         match self.operator {
             Operator::Equal => "=",
@@ -450,6 +459,7 @@ impl Condition {
         }
     }
 
+    #[cfg(test)]
     pub fn to_string(&self) -> String {
         return format!(
             "Condition {{ left_operand={}, operator={}, right_operand={} }}",

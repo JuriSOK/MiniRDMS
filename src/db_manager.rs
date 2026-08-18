@@ -1,3 +1,5 @@
+//! Catalog manager for databases, tables, and catalog persistence.
+
 use crate::buffer_manager::BufferManager;
 use crate::col_info::ColInfo;
 use crate::data_base::Database;
@@ -22,6 +24,7 @@ pub struct DBManager<'a> {
 }
 
 impl<'a> DBManager<'a> {
+    /// Creates an empty catalog tied to the shared buffer manager.
     pub fn new(db: &'a DBConfig, buffer_m: Rc<RefCell<BufferManager<'a>>>) -> Self {
         DBManager {
             databases: HashMap::new(),
@@ -31,6 +34,7 @@ impl<'a> DBManager<'a> {
         }
     }
 
+    /// Returns the currently selected database when one is active.
     pub fn get_current_database(&mut self) -> Option<&mut Database<'a>> {
         if self.current_database.is_some() {
             return self
@@ -41,19 +45,18 @@ impl<'a> DBManager<'a> {
         }
     }
 
+    /// Returns the complete database map for catalog-wide operations.
     pub fn get_databases(&self) -> &HashMap<String, Database<'a>> {
         return &self.databases;
     }
 
-    pub fn get_db_config(&self) -> &'a DBConfig {
-        return self.dbconfig;
-    }
-
+    /// Adds a database to the in-memory catalog.
     pub fn create_database(&mut self, db: &str) {
         self.databases
             .insert(db.to_string(), Database::new(db.to_string()));
     }
 
+    /// Selects the active database used by table and record commands.
     pub fn set_current_database(&mut self, name: &str) {
         if self.databases.contains_key(name) {
             self.current_database = Some(name.to_string());
@@ -62,6 +65,7 @@ impl<'a> DBManager<'a> {
         }
     }
 
+    /// Adds a relation to the active database.
     pub fn add_table_to_current_database(&mut self, table: Relation<'a>) {
         let name = table.get_name().clone();
         if self.current_database.is_some() {
@@ -70,6 +74,7 @@ impl<'a> DBManager<'a> {
         println!("Table {} created.", name);
     }
 
+    /// Looks up a table by name in the active database.
     pub fn get_table_from_current_database(&mut self, table_name: &str) -> Option<&Relation<'a>> {
         let database = self.get_current_database().unwrap();
         let database_relations = database.get_relations();
@@ -82,12 +87,14 @@ impl<'a> DBManager<'a> {
         return rel_result;
     }
 
+    /// Removes a table from the active database catalog.
     pub fn remove_table_from_current_database(&mut self, table_name: &str) {
         self.get_current_database()
             .unwrap()
             .remove_relation(table_name);
     }
 
+    /// Removes a database and clears the current database if it was selected.
     pub fn remove_database(&mut self, database_name: &str) {
         if let Some(_db) = self.databases.get(database_name) {
             self.databases
@@ -103,6 +110,7 @@ impl<'a> DBManager<'a> {
         }
     }
 
+    /// Removes every table from the active database.
     pub fn remove_tables_from_current_database(&mut self) {
         match self.get_current_database() {
             Some(_database) => self
@@ -113,11 +121,13 @@ impl<'a> DBManager<'a> {
         }
     }
 
+    /// Clears every database from the catalog.
     pub fn remove_databases(&mut self) {
         self.current_database = None;
         self.databases.clear();
     }
 
+    /// Prints all databases known by the catalog.
     pub fn list_databases(&mut self) {
         println!("Databases:");
         match self.get_current_database() {
@@ -132,6 +142,7 @@ impl<'a> DBManager<'a> {
         }
     }
 
+    /// Prints all tables in the currently selected database.
     pub fn list_tables_in_current_database(&mut self) {
         match self.get_current_database() {
             Some(database) => {
@@ -158,6 +169,7 @@ impl<'a> DBManager<'a> {
         }
     }
 
+    /// Saves databases, tables, columns, and header page ids to `databases.json`.
     pub fn save_state(&self) -> Result<(), std::io::Error> {
         let save_file = format!("{}/databases.json", self.dbconfig.get_dbpath());
         let mut snapshot: HashMap<String, Vec<(String, (u32, u32), Vec<String>, Vec<String>)>> =
@@ -207,6 +219,7 @@ impl<'a> DBManager<'a> {
         Ok(())
     }
 
+    /// Restores catalog metadata from `databases.json`.
     pub fn load_state(&mut self) -> Result<(), std::io::Error> {
         let save_file = format!("{}/databases.json", self.dbconfig.get_dbpath());
 

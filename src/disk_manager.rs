@@ -1,3 +1,5 @@
+//! Disk layer that allocates, frees, reads, writes, and persists physical pages.
+
 use crate::config::DBConfig;
 use crate::page::PageId;
 use bincode;
@@ -15,6 +17,7 @@ pub struct DiskManager<'a> {
 }
 
 impl<'a> DiskManager<'a> {
+    /// Creates the disk manager and restores the saved free-page list.
     pub fn new(config: &'a DBConfig) -> Self {
         let mut dm = Self {
             config,
@@ -29,6 +32,7 @@ impl<'a> DiskManager<'a> {
         dm
     }
 
+    /// Allocates a reusable free page or appends a new page to a data file.
     pub fn alloc_page(&mut self) -> PageId {
         self.free_pages.clear();
         if let Err(e) = self.load_state() {
@@ -102,6 +106,7 @@ impl<'a> DiskManager<'a> {
             .unwrap_or(false)
     }
 
+    /// Reads one physical page into the provided buffer.
     pub fn read_page(&self, page_id: &PageId, buff: &mut ByteBuffer) -> Result<(), std::io::Error> {
         let num_file = page_id.get_file_idx();
         let num_page = page_id.get_page_idx();
@@ -124,6 +129,7 @@ impl<'a> DiskManager<'a> {
         Ok(())
     }
 
+    /// Writes the provided buffer bytes into one physical page.
     pub fn write_page(
         &self,
         page_id: &PageId,
@@ -148,6 +154,7 @@ impl<'a> DiskManager<'a> {
         Ok(())
     }
 
+    /// Persists the free-page list to `dm.save`.
     pub fn save_state(&self) -> std::io::Result<()> {
         let dm_save_path = format!("{}/dm.save", self.config.get_dbpath());
 
@@ -161,6 +168,7 @@ impl<'a> DiskManager<'a> {
 
         let mut writer = BufWriter::new(file);
 
+        // Each PageId is serialized separately so load_state can stream them back one by one.
         for page in &self.free_pages {
             let serialized_content = bincode::serialize(&page)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
@@ -171,6 +179,7 @@ impl<'a> DiskManager<'a> {
         Ok(())
     }
 
+    /// Restores the free-page list from `dm.save`.
     pub fn load_state(&mut self) -> std::io::Result<()> {
         let dm_save_path = format!("{}/dm.save", self.config.get_dbpath());
 
@@ -201,6 +210,7 @@ impl<'a> DiskManager<'a> {
         Ok(())
     }
 
+    /// Marks a page as reusable and persists the updated free-page list.
     pub fn dealloc_page(&mut self, page_id: PageId) {
         if !self.free_pages.contains(&page_id) {
             self.free_pages.push(page_id);
@@ -211,6 +221,7 @@ impl<'a> DiskManager<'a> {
         }
     }
 
+    /// Gives callers access to page-size and file-size settings.
     pub fn get_db_config(&self) -> &DBConfig {
         return &self.config;
     }
