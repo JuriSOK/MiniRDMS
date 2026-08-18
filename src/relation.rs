@@ -9,23 +9,21 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct Relation<'a> {
-    //PERSONNE(NOM,PRENOM?,AGE)
     name: String,
     columns: Vec<ColInfo>,
     nb_columns: usize,
-    //TP5
+
     buffer_manager: Rc<RefCell<BufferManager<'a>>>,
-    header_page_id: PageId, //id de la header page
+    header_page_id: PageId,
 }
 
 impl<'a> Relation<'a> {
     pub fn new(name: String, columns: Vec<ColInfo>, bfm: Rc<RefCell<BufferManager<'a>>>) -> Self {
         let tmp = columns.len();
 
-        //On appelle 'alloc_page' avant de déplacer 'buffer_manager' sinon ça fais des chinoiseries
         let header_page_id = bfm.borrow_mut().get_disk_manager_mut().alloc_page();
 
-        //bon là c'est expérimental on va dire, j'ai mis un scope pour pas géner le constructeur mais ça se trouve ça fonctionne pas du tout
+        // The header page starts with the number of data pages stored at offset 0.
         {
             let mut bfmr = bfm.borrow_mut();
             let _ = bfmr.get_page(&header_page_id).write_int(0, 0);
@@ -41,8 +39,6 @@ impl<'a> Relation<'a> {
             header_page_id,
         }
     }
-
-    //Deuxième constructeur, pour être utilisé dans les "load" ça veut dire qu'on charge les données et on ne les crée pas.
 
     pub fn from_saved(
         name: String,
@@ -63,7 +59,6 @@ impl<'a> Relation<'a> {
         &self.name
     }
 
-    // Getter pour les informations sur les colonnes
     pub fn get_columns(&self) -> Vec<ColInfo> {
         self.columns.clone()
     }
@@ -73,41 +68,35 @@ impl<'a> Relation<'a> {
     }
 
     pub fn write_record_to_buffer(&self, record: Record, buffer: &mut Buffer, pos: usize) -> usize {
-        // Copie du tuple (pas obligatoire)
         let tuple = record.get_tuple().clone();
-        //Pour avoir le nom des colonnes, le type etc...
-        let mut compteur: usize = 0;
 
-        let mut indice: usize = pos; //pour la position
+        let mut counter: usize = 0;
 
-        // Initialisation de la taille d'un BUFFER
+        let mut index: usize = pos;
 
-        // Pour savoir si une colonne type  varchar a été trouvé dans le record
-        let mut varchar_trouve: bool = false;
+        let mut varchar_found: bool = false;
 
-        // Recherche d'un ou plusieurs VARCHAR dans le tuple.
         for i in 0..self.columns.len() {
             if self.columns[i].get_column_type().starts_with("VARCHAR") {
-                varchar_trouve = true;
+                varchar_found = true;
                 break;
             }
         }
 
-        let mut taille_objets: Vec<usize> = Vec::new();
+        let mut field_sizes: Vec<usize> = Vec::new();
 
-        if varchar_trouve {
-            // Stockage des longueurs en octet de chaque attribut
-            //pour faire les offset après
+        if varchar_found {
+            // Variable-length records start with an offset table, followed by field data.
             for i in 0..tuple.len() {
                 match self.columns[i].get_column_type().as_str() {
                     "INT" => {
-                        taille_objets.push(4);
-                        compteur += 4;
+                        field_sizes.push(4);
+                        counter += 4;
                         continue;
                     }
                     "REAL" => {
-                        taille_objets.push(4);
-                        compteur += 4;
+                        field_sizes.push(4);
+                        counter += 4;
                         continue;
                     }
                     s if s.starts_with("CHAR") => {
@@ -119,8 +108,8 @@ impl<'a> Relation<'a> {
                             .repeat(substring.parse::<usize>().unwrap())
                             .as_bytes()
                             .len();
-                        taille_objets.push(nbytes);
-                        compteur += 4; // COMPTEUR + LA TAILLE DE LA CHAINE
+                        field_sizes.push(nbytes);
+                        counter += 4;
                         continue;
                     }
                     s2 if s2.starts_with("VARCHAR") => {
@@ -133,139 +122,132 @@ impl<'a> Relation<'a> {
                         } else {
                             " ".repeat(len_s).as_bytes().len()
                         };
-                        taille_objets.push(nbytes);
-                        compteur += 4;
+                        field_sizes.push(nbytes);
+                        counter += 4;
                         continue;
                     }
-                    _ => {} //default du match
+                    _ => {}
                 }
             }
-            compteur += 4;
+            counter += 4;
 
-            //Ecriture des longueurs des attributs
-            //ça met les offset dans le buffer
-            let mut compteur2 = compteur;
-            for i in 0..taille_objets.len() {
+            let mut counter2 = counter;
+            for i in 0..field_sizes.len() {
                 match self.columns[i].get_column_type().as_str() {
                     "INT" => {
-                        buffer.write_int(indice, (compteur2 + pos) as i32).unwrap();
-                        compteur2 += 4;
-                        indice += 4;
+                        buffer.write_int(index, (counter2 + pos) as i32).unwrap();
+                        counter2 += 4;
+                        index += 4;
                         continue;
                     }
                     "REAL" => {
-                        buffer.write_int(indice, (compteur2 + pos) as i32).unwrap();
-                        compteur2 += 4;
-                        indice += 4;
+                        buffer.write_int(index, (counter2 + pos) as i32).unwrap();
+                        counter2 += 4;
+                        index += 4;
                         continue;
                     }
                     s if s.starts_with("CHAR") => {
-                        let taille = taille_objets[i];
+                        let size = field_sizes[i];
 
-                        buffer.write_int(indice, (compteur2 + pos) as i32).unwrap();
+                        buffer.write_int(index, (counter2 + pos) as i32).unwrap();
 
-                        compteur2 += taille;
-                        indice += 4;
+                        counter2 += size;
+                        index += 4;
                         continue;
                     }
                     s2 if s2.starts_with("VARCHAR") => {
-                        let taille = taille_objets[i];
+                        let size = field_sizes[i];
 
-                        buffer.write_int(indice, (compteur2 + pos) as i32).unwrap();
+                        buffer.write_int(index, (counter2 + pos) as i32).unwrap();
 
-                        compteur2 += taille;
-                        indice += 4;
+                        counter2 += size;
+                        index += 4;
                         continue;
                     }
-                    _ => {} //default du match
+                    _ => {}
                 }
             }
 
-            buffer.write_int(indice, (compteur2 + pos) as i32).unwrap();
-            indice = pos + compteur;
+            buffer.write_int(index, (counter2 + pos) as i32).unwrap();
+            index = pos + counter;
 
-            // Ecriture des valeurs des attributs
-            for i in 0..taille_objets.len() {
+            for i in 0..field_sizes.len() {
                 match self.columns[i].get_column_type().as_str() {
                     "INT" => {
                         let value: i32 = tuple[i].parse().unwrap();
-                        let _ = buffer.write_int(indice, value);
+                        let _ = buffer.write_int(index, value);
 
-                        compteur += 4; // Pour les 4 octets de l'entier
-                        indice += 4;
+                        counter += 4;
+                        index += 4;
                         continue;
                     }
                     "REAL" => {
                         let value: f32 = tuple[i].parse().unwrap();
-                        let _ = buffer.write_float(indice, value);
-                        compteur += 4; // Pour les 4 octets du reel
-                        indice += 4;
+                        let _ = buffer.write_float(index, value);
+                        counter += 4;
+                        index += 4;
                         continue;
                     }
                     s if s.starts_with("CHAR") => {
                         let bytes = tuple[i].as_bytes();
-                        let _ = buffer.write_string(indice, tuple[i].as_str(), bytes.len());
-                        compteur += bytes.len();
-                        indice += bytes.len();
+                        let _ = buffer.write_string(index, tuple[i].as_str(), bytes.len());
+                        counter += bytes.len();
+                        index += bytes.len();
                         continue;
                     }
                     s2 if s2.starts_with("VARCHAR") => {
                         let nbytes = tuple[i].as_bytes().len();
                         let bytes = tuple[i].as_bytes();
 
-                        let _ = buffer.write_string(indice, tuple[i].as_str(), bytes.len());
-                        compteur += nbytes;
-                        indice += nbytes;
+                        let _ = buffer.write_string(index, tuple[i].as_str(), bytes.len());
+                        counter += nbytes;
+                        index += nbytes;
                         continue;
                     }
                     _ => {}
                 }
             }
         } else {
-            // Si pas de VARCHAR dans le tuple
-
-            // FACILE à comprendre, le code est transparent :)
             for i in 0..self.nb_columns {
                 match self.columns[i].get_column_type().as_str() {
                     "INT" => {
                         let value: i32 = tuple[i].parse().unwrap();
-                        let _ = buffer.write_int(indice, value);
+                        let _ = buffer.write_int(index, value);
 
-                        compteur += 4; // Pour les 4 octets de l'entier
-                        indice += 4;
+                        counter += 4;
+                        index += 4;
                         continue;
                     }
                     "REAL" => {
                         let value: f32 = tuple[i].parse().unwrap();
-                        let _ = buffer.write_float(indice, value);
+                        let _ = buffer.write_float(index, value);
 
-                        compteur += 4; // Pour les 4 octets du reel
-                        indice += 4;
+                        counter += 4;
+                        index += 4;
                         continue;
-                    } // CHAR(20) --> 20 CARACTERES = 20 OCTETS
+                    }
                     s if s.starts_with("CHAR") => {
                         let bytes = tuple[i].as_bytes();
-                        let _ = buffer.write_string(indice, tuple[i].as_str(), bytes.len());
-                        compteur += bytes.len();
-                        indice += bytes.len();
+                        let _ = buffer.write_string(index, tuple[i].as_str(), bytes.len());
+                        counter += bytes.len();
+                        index += bytes.len();
 
                         continue;
                     }
 
-                    _ => {} //default du match
+                    _ => {}
                 }
             }
         }
-        return compteur;
+        return counter;
     }
 
-    pub fn read_from_buffer(&self, un_record: &mut Record, buff: &Buffer, pos: usize) -> usize {
+    pub fn read_from_buffer(&self, record: &mut Record, buff: &Buffer, pos: usize) -> usize {
         let mut tuple: Vec<String> = Vec::new();
         let mut varchar = false;
-        let mut nb_octets_lus = 0;
+        let mut bytes_read = 0;
         let mut pos_local = pos;
 
-        //on regarde si on a un varchar :
         for i in 0..self.nb_columns {
             if self.columns[i]
                 .get_column_type()
@@ -277,124 +259,111 @@ impl<'a> Relation<'a> {
             }
         }
 
-        //cas ou on a un varchar, du coup on aura des offsets
         if varchar {
-            //la taille de la valeur est donnée par le offset impair et le offset qui le suit. (debut de la valeur dans le buffer et la fin de celle-ci)
-
-            //on doit mettre dans le tuple les valeurs qui commencent après les offsets
+            // Read the offset table first, then resolve each field value from its byte range.
             for i in 0..self.nb_columns {
-                let offset_debut: usize = buff.read_int(pos_local).unwrap().try_into().unwrap();
+                let value_start: usize = buff.read_int(pos_local).unwrap().try_into().unwrap();
 
-                let offset_fin: usize = buff.read_int(pos_local + 4).unwrap().try_into().unwrap();
+                let value_end: usize = buff.read_int(pos_local + 4).unwrap().try_into().unwrap();
 
-                nb_octets_lus += 4;
+                bytes_read += 4;
 
                 if self.columns[i].get_column_type().eq("INT") {
-                    let value = buff.read_int(offset_debut).unwrap();
+                    let value = buff.read_int(value_start).unwrap();
                     tuple.push(value.to_string());
-                    nb_octets_lus += 4;
+                    bytes_read += 4;
                 } else if self.columns[i].get_column_type().eq("REAL") {
-                    let value = buff.read_float(offset_debut).unwrap();
+                    let value = buff.read_float(value_start).unwrap();
                     tuple.push(value.to_string());
-                    nb_octets_lus += 4;
+                    bytes_read += 4;
                 } else {
                     let string_value = buff
-                        .read_string(offset_debut, (offset_fin - offset_debut) as usize)
+                        .read_string(value_start, (value_end - value_start) as usize)
                         .unwrap();
                     tuple.push(string_value);
-                    nb_octets_lus += (offset_fin - offset_debut) as usize;
+                    bytes_read += (value_end - value_start) as usize;
                 }
 
-                //pour recup le nb d'octets lus,
                 pos_local += 4;
             }
-            nb_octets_lus += 4;
+            bytes_read += 4;
         } else {
-            let mut compteur_pos = pos;
+            let mut counter_pos = pos;
             for i in 0..self.nb_columns {
                 match self.columns[i].get_column_type().as_str() {
                     "INT" => {
-                        let value = buff.read_int(compteur_pos).unwrap();
+                        let value = buff.read_int(counter_pos).unwrap();
                         tuple.push(value.to_string());
-                        compteur_pos += 4;
-                        nb_octets_lus += 4;
+                        counter_pos += 4;
+                        bytes_read += 4;
                         continue;
                     }
                     "REAL" => {
-                        let value = buff.read_float(compteur_pos).unwrap();
+                        let value = buff.read_float(counter_pos).unwrap();
                         tuple.push(value.to_string());
-                        compteur_pos += 4;
-                        nb_octets_lus += 4;
+                        counter_pos += 4;
+                        bytes_read += 4;
                         continue;
                     }
                     s if s.starts_with("CHAR") => {
-                        let indice_parenthese_ouvrante = s.find("(");
-                        let indice_parenthese_fermante = s.find(")"); //on prend les deux parenthèses comme on connait pas le chiffre on connait pas la taille de son string correspondant
-                        let taille_char = s[(indice_parenthese_ouvrante.unwrap() + 1)
-                            ..indice_parenthese_fermante.unwrap()]
+                        let open_paren_index = s.find("(");
+                        let close_paren_index = s.find(")");
+                        let size_char = s
+                            [(open_paren_index.unwrap() + 1)..close_paren_index.unwrap()]
                             .parse::<i32>()
                             .unwrap();
 
-                        let string_value = buff
-                            .read_string(compteur_pos, taille_char as usize)
-                            .unwrap();
+                        let string_value =
+                            buff.read_string(counter_pos, size_char as usize).unwrap();
 
                         tuple.push(string_value);
-                        compteur_pos += taille_char as usize;
-                        nb_octets_lus += taille_char as usize;
+                        counter_pos += size_char as usize;
+                        bytes_read += size_char as usize;
                         continue;
                     }
 
-                    _ => {} //default du match
+                    _ => {}
                 }
             }
         }
-        un_record.set_tuple(tuple);
-        return nb_octets_lus as usize;
+        record.set_tuple(tuple);
+        return bytes_read as usize;
     }
 
     pub fn add_data_page(&mut self) -> () {
-        // Emprunt mutable de buffer_manager pour effectuer toutes les opérations
         let mut buffer_manager = self.buffer_manager.borrow_mut();
-        let nb_octets_restant = buffer_manager
+        let remaining_bytes = buffer_manager
             .get_disk_manager()
-            .get_dbconfig()
+            .get_db_config()
             .get_page_size() as u32;
 
-        // Allocation de la nouvelle page
-        let nouvelle_page = buffer_manager.get_disk_manager_mut().alloc_page();
+        let new_page = buffer_manager.get_disk_manager_mut().alloc_page();
 
-        // Accès et manipulation de la page d'en-tête
-        let mut header_page = buffer_manager.get_page(&self.header_page_id); // Emprunt mutable de la page d'en-tête
+        let mut header_page = buffer_manager.get_page(&self.header_page_id);
 
         let mut nb_pages = header_page.read_int(0).unwrap();
-        nb_pages += 1; // Incrémentation du nombre de pages
+        nb_pages += 1;
         let _ = header_page.write_int(0, nb_pages);
 
-        let next_offset = 4 + (nb_pages - 1) * 12; // Calcul de l'offset pour l'écriture des données
+        // Each header entry stores file id, page id, and remaining free bytes.
+        let next_offset = 4 + (nb_pages - 1) * 12;
 
-        // Écriture des informations sur la nouvelle page
-        let _ = header_page.write_int(next_offset as usize, nouvelle_page.get_file_idx() as i32);
-        let _ = header_page.write_int(
-            (next_offset + 4) as usize,
-            nouvelle_page.get_page_idx() as i32,
-        );
+        let _ = header_page.write_int(next_offset as usize, new_page.get_file_idx() as i32);
+        let _ = header_page.write_int((next_offset + 4) as usize, new_page.get_page_idx() as i32);
 
-        //// Calcul de la taille restante de la page
-        let _ = header_page.write_int((next_offset + 8) as usize, (nb_octets_restant - 8) as i32);
+        let _ = header_page.write_int((next_offset + 8) as usize, (remaining_bytes - 8) as i32);
 
-        buffer_manager.free_page(&self.header_page_id, true); // Libération de la page d'en-tête
+        buffer_manager.free_page(&self.header_page_id, true);
 
-        let mut data_page = buffer_manager.get_page(&nouvelle_page);
+        let mut data_page = buffer_manager.get_page(&new_page);
 
-        let _ = data_page.write_int((nb_octets_restant - 4) as usize, 0);
-        let _ = data_page.write_int((nb_octets_restant - 8) as usize, 0);
-        buffer_manager.free_page(&nouvelle_page, true);
+        let _ = data_page.write_int((remaining_bytes - 4) as usize, 0);
+        let _ = data_page.write_int((remaining_bytes - 8) as usize, 0);
+        buffer_manager.free_page(&new_page, true);
 
         buffer_manager.flush_buffers();
     }
 
-    //Je retourne un Option car je veux que si je trouve rien, je retourne genre "null"
     pub fn get_free_data_page_id(&self, size_record: usize) -> Option<PageId> {
         let mut buffer_manager = self.buffer_manager.borrow_mut();
 
@@ -436,47 +405,39 @@ impl<'a> Relation<'a> {
     }
 
     pub fn write_record_to_data_page(&mut self, record: Record, page_id: PageId) -> RecordId {
-        // Emprunt immuable temporaire pour obtenir des informations nécessaires
         let mut buffer_manager: std::cell::RefMut<'_, BufferManager<'a>> =
             self.buffer_manager.borrow_mut();
 
         let page_size = buffer_manager
             .get_disk_manager()
-            .get_dbconfig()
+            .get_db_config()
             .get_page_size();
 
-        // Emprunter la page une seule fois
         let mut page = buffer_manager.get_page(&page_id);
 
-        // Lecture des données nécessaires une seule fois
-        let position_libre = page.read_int((page_size - 4) as usize).unwrap() as usize;
+        let free_position = page.read_int((page_size - 4) as usize).unwrap() as usize;
 
-        let taille_record: usize = self.write_record_to_buffer(record, &mut page, position_libre);
+        let size_record: usize = self.write_record_to_buffer(record, &mut page, free_position);
 
         let m_nb_slot: usize = page.read_int((page_size - 8) as usize).unwrap() as usize;
 
-        // Mise à jour des données de la page
-        let _ = page.write_int((page_size - 8) as usize, (m_nb_slot + 1) as i32); // Mise à jour du nombre de records
+        let _ = page.write_int((page_size - 8) as usize, (m_nb_slot + 1) as i32);
         let _ = page.write_int(
             (page_size - 4) as usize,
-            (position_libre + taille_record) as i32,
-        ); // Mise à jour de la position libre
-
-        let taille_pos: usize = m_nb_slot * 8; // Taille totale des couples (position, taille) déjà présents
-
-        // Écriture du couple (position, taille) pour le record actuel
-        let _ = page.write_int(
-            (page_size as usize) - 8 - taille_pos - 8,
-            position_libre as i32,
-        );
-        let _ = page.write_int(
-            (page_size as usize) - 8 - taille_pos - 4,
-            taille_record as i32,
+            (free_position + size_record) as i32,
         );
 
-        let taille_totale: usize = taille_record + 8;
+        let size_pos: usize = m_nb_slot * 8;
+
+        let _ = page.write_int(
+            (page_size as usize) - 8 - size_pos - 8,
+            free_position as i32,
+        );
+        let _ = page.write_int((page_size as usize) - 8 - size_pos - 4, size_record as i32);
+
+        let size_totale: usize = size_record + 8;
         buffer_manager.free_page(&page_id, true);
-        // Mise à jour dans la page d'en-tête
+
         let mut header_page = buffer_manager.get_page(&self.header_page_id);
         for i in 0..header_page.read_int(0).unwrap() {
             let offset = 4 + i * 12;
@@ -486,7 +447,7 @@ impl<'a> Relation<'a> {
                     == (page_id.get_page_idx() as i32)
             {
                 let tmp = header_page.read_int((offset + 8) as usize).unwrap();
-                let _ = header_page.write_int((offset + 8) as usize, tmp - taille_totale as i32);
+                let _ = header_page.write_int((offset + 8) as usize, tmp - size_totale as i32);
                 break;
             }
         }
@@ -494,18 +455,17 @@ impl<'a> Relation<'a> {
         buffer_manager.free_page(&self.header_page_id, true);
         buffer_manager.flush_buffers();
 
-        // Retourner l'identifiant du record
-        RecordId::new(page_id.clone(), (page_size as usize) - 8 - taille_pos - 8)
+        RecordId::new(page_id.clone(), (page_size as usize) - 8 - size_pos - 8)
     }
 
     pub fn get_records_in_data_page(&self, page_id: &PageId) -> Vec<Record> {
         let mut buffer_manager: std::cell::RefMut<'_, BufferManager<'a>> =
             self.buffer_manager.borrow_mut();
 
-        let mut liste_de_records = Vec::new();
+        let mut records = Vec::new();
         let page_size = buffer_manager
             .get_disk_manager()
-            .get_dbconfig()
+            .get_db_config()
             .get_page_size() as usize;
 
         let buffer_data = buffer_manager.get_page(&page_id);
@@ -520,15 +480,15 @@ impl<'a> Relation<'a> {
 
             pos = pos + self.read_from_buffer(&mut record, &buffer_data, pos);
 
-            liste_de_records.push(record);
+            records.push(record);
         }
 
         buffer_manager.free_page(&page_id, false);
-        return liste_de_records;
+        return records;
     }
 
     pub fn get_data_pages(&self) -> Vec<PageId> {
-        let mut liste_pages = Vec::new();
+        let mut page_infos = Vec::new();
         let mut buffer_manager = self.buffer_manager.borrow_mut();
 
         let buffer_header = buffer_manager.get_page(&self.header_page_id);
@@ -538,11 +498,11 @@ impl<'a> Relation<'a> {
             let file_idx = buffer_header.read_int((4 + i * 12) as usize).unwrap();
             let page_idx = buffer_header.read_int((4 + i * 12 + 4) as usize).unwrap();
 
-            liste_pages.push(PageId::new(file_idx as u32, page_idx as u32));
+            page_infos.push(PageId::new(file_idx as u32, page_idx as u32));
         }
 
         buffer_manager.free_page(&self.header_page_id, false);
-        return liste_pages;
+        return page_infos;
     }
 
     pub fn insert_record(&mut self, record: Record) -> RecordId {
@@ -550,26 +510,23 @@ impl<'a> Relation<'a> {
             .buffer_manager
             .borrow_mut()
             .get_disk_manager()
-            .get_dbconfig()
+            .get_db_config()
             .get_page_size();
-        //tout ça c'est pour recup la taille du coup
+
         let mut byte_record = ByteBuffer::new();
-        byte_record.resize(page_size as usize); // Je resize le buffer en fonction d'une page de donnée, on ne peut écrire dans
-                                                // un buffer vide.
+        byte_record.resize(page_size as usize);
+
         let refcell_record = RefCell::new(byte_record);
         let mut buffer_record = Buffer::new(&Rc::new(refcell_record));
 
-        //on récupère la taille du record de cette manière, pas sûr que ce soit la bonne méthode
-        let taille_record = self.write_record_to_buffer(record.clone(), &mut buffer_record, 0);
+        let size_record = self.write_record_to_buffer(record.clone(), &mut buffer_record, 0);
 
-        //on récupère une page avec assez de place pour écrire
-        let data_page = self.get_free_data_page_id(taille_record);
+        let data_page = self.get_free_data_page_id(size_record);
 
-        //Incroyable, Optimisation niveau Master, si question demander à Aymeric
         if data_page.is_none() {
             self.add_data_page();
 
-            let data_page = (self.get_free_data_page_id(taille_record)).unwrap();
+            let data_page = (self.get_free_data_page_id(size_record)).unwrap();
             return self.write_record_to_data_page(record, data_page);
         } else {
             return self.write_record_to_data_page(record, data_page.unwrap());
@@ -577,15 +534,15 @@ impl<'a> Relation<'a> {
     }
 
     pub fn get_all_records(&self) -> Vec<Record> {
-        let mut liste_records = Vec::new();
-        let liste_data_pages = self.get_data_pages();
+        let mut records = Vec::new();
+        let data_pages = self.get_data_pages();
 
-        for page in liste_data_pages.iter() {
-            let mut liste_record_tmp = self.get_records_in_data_page(page);
-            liste_records.append(&mut liste_record_tmp);
+        for page in data_pages.iter() {
+            let mut page_records = self.get_records_in_data_page(page);
+            records.append(&mut page_records);
         }
 
-        return liste_records;
+        return records;
     }
 }
 
@@ -603,21 +560,21 @@ mod tests {
         let s: String = String::from("config.json");
         let config = DBConfig::load_db_config(s);
         let dm = DiskManager::new(&config);
-        let algo_lru = String::from("LRU");
+        let lru_policy = String::from("LRU");
 
-        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, algo_lru)));
+        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, lru_policy)));
 
         let record = Record::new(vec![
             "SOK".to_string(),
             "ARNAUD".to_string(),
             "20".to_string(),
         ]);
-        let colinfo: Vec<ColInfo> = vec![
+        let column_info: Vec<ColInfo> = vec![
             ColInfo::new("NOM".to_string(), "CHAR(3)".to_string()),
             ColInfo::new("AGE".to_string(), "VARCHAR(6)".to_string()),
             ColInfo::new("PRENOM".to_string(), "INT".to_string()),
         ];
-        let relation = Relation::new("PERSONNE".to_string(), colinfo.clone(), buffer_manager);
+        let relation = Relation::new("PERSONNE".to_string(), column_info.clone(), buffer_manager);
         let pos = 0;
 
         let mut buffer = ByteBuffer::new();
@@ -625,11 +582,8 @@ mod tests {
         let refcbuffer = RefCell::new(buffer);
         let mut buffer2 = Buffer::new(&Rc::new(refcbuffer));
 
-        //let mut buffer = Vec::with_capacity(40);
-
         relation.write_record_to_buffer(record, &mut buffer2, pos);
         println!("{:?}", buffer2.get_mut_buffer().as_bytes());
-        //A lancer avec "cargo test test_write_varchar -- --nocapture" pour voir le println
     }
 
     #[test]
@@ -638,21 +592,21 @@ mod tests {
         let s: String = String::from("config.json");
         let config = DBConfig::load_db_config(s);
         let dm = DiskManager::new(&config);
-        let algo_lru = String::from("LRU");
+        let lru_policy = String::from("LRU");
 
-        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, algo_lru)));
+        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, lru_policy)));
 
         let record = Record::new(vec![
             "SOK".to_string(),
             "20".to_string(),
             "ARNAUD".to_string(),
         ]);
-        let colinfo: Vec<ColInfo> = vec![
+        let column_info: Vec<ColInfo> = vec![
             ColInfo::new("NOM".to_string(), "CHAR(3)".to_string()),
             ColInfo::new("AGE".to_string(), "INT".to_string()),
             ColInfo::new("PRENOM".to_string(), "VARCHAR(6)".to_string()),
         ];
-        let relation = Relation::new("PERSONNE".to_string(), colinfo.clone(), buffer_manager);
+        let relation = Relation::new("PERSONNE".to_string(), column_info.clone(), buffer_manager);
         let pos = 0;
 
         let mut buffer = ByteBuffer::new();
@@ -662,15 +616,12 @@ mod tests {
 
         relation.write_record_to_buffer(record, &mut buffer2, pos);
         println!("{:?}", buffer2.get_mut_buffer());
-        //println!("NB OCTET {}",relation.write_record_to_buffer(record2, &mut Buffer, pos));
 
         let string_tuple = vec!["".to_string(), "".to_string(), "".to_string()];
 
         let record_test: Record = Record::new(string_tuple);
 
-        //println!("NB octet lu {}",relation.read_from_buffer(&mut record_test, &Buffer, pos));
-
-        println!("Contenu du record_test après lecture du buffer :");
+        println!("record_test contents after reading from the buffer:");
         for field in record_test.get_tuple() {
             println!("{}", field);
         }
@@ -682,16 +633,17 @@ mod tests {
         let s: String = String::from("config.json");
         let config = DBConfig::load_db_config(s);
         let dm = DiskManager::new(&config);
-        let algo_lru = String::from("LRU");
+        let lru_policy = String::from("LRU");
 
-        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, algo_lru)));
+        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, lru_policy)));
 
-        let colinfo: Vec<ColInfo> = vec![
+        let column_info: Vec<ColInfo> = vec![
             ColInfo::new("NOM".to_string(), "CHAR(3)".to_string()),
             ColInfo::new("AGE".to_string(), "VARCHAR(6)".to_string()),
             ColInfo::new("PRENOM".to_string(), "INT".to_string()),
         ];
-        let mut relation = Relation::new("PERSONNE".to_string(), colinfo.clone(), buffer_manager);
+        let mut relation =
+            Relation::new("PERSONNE".to_string(), column_info.clone(), buffer_manager);
         relation.add_data_page();
         relation.add_data_page();
         relation.add_data_page();
@@ -703,16 +655,17 @@ mod tests {
         let s: String = String::from("config.json");
         let config = DBConfig::load_db_config(s);
         let dm = DiskManager::new(&config);
-        let algo_lru = String::from("LRU");
+        let lru_policy = String::from("LRU");
 
-        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, algo_lru)));
+        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, lru_policy)));
 
-        let colinfo: Vec<ColInfo> = vec![
+        let column_info: Vec<ColInfo> = vec![
             ColInfo::new("NOM".to_string(), "CHAR(3)".to_string()),
             ColInfo::new("AGE".to_string(), "VARCHAR(6)".to_string()),
             ColInfo::new("PRENOM".to_string(), "INT".to_string()),
         ];
-        let mut relation = Relation::new("PERSONNE".to_string(), colinfo.clone(), buffer_manager);
+        let mut relation =
+            Relation::new("PERSONNE".to_string(), column_info.clone(), buffer_manager);
         relation.add_data_page();
         relation.add_data_page();
 
@@ -730,16 +683,17 @@ mod tests {
         let s: String = String::from("config.json");
         let config = DBConfig::load_db_config(s);
         let dm = DiskManager::new(&config);
-        let algo_lru = String::from("LRU");
+        let lru_policy = String::from("LRU");
 
-        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, algo_lru)));
+        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, lru_policy)));
 
-        let colinfo: Vec<ColInfo> = vec![
+        let column_info: Vec<ColInfo> = vec![
             ColInfo::new("NOM".to_string(), "VARCHAR(20)".to_string()),
             ColInfo::new("PRENOM".to_string(), "VARCHAR(20)".to_string()),
             ColInfo::new("AGE".to_string(), "INT".to_string()),
         ];
-        let mut relation = Relation::new("PERSONNE".to_string(), colinfo.clone(), buffer_manager);
+        let mut relation =
+            Relation::new("PERSONNE".to_string(), column_info.clone(), buffer_manager);
 
         let record1 = Record::new(vec![
             "SOK".to_string(),
@@ -751,13 +705,12 @@ mod tests {
             "YOHANN".to_string(),
             "20".to_string(),
         ]);
-        //let record3 = Record::new(vec!["LETACONNOUX".to_string(),"AYMERIC".to_string(),"20".to_string()]);
 
         relation.add_data_page();
         let page_id = relation.get_data_pages()[0].clone();
         let rid1 = relation.write_record_to_data_page(record1, page_id.clone());
         let rid2 = relation.write_record_to_data_page(record2, page_id);
-        //relation.writeRecordToDataPage(record3, page_id);
+
         println!(
             "RID tuple 1 : File idx {}, Page idx {}, Slot idx : {}",
             rid1.get_page_id().get_file_idx(),
@@ -779,16 +732,17 @@ mod tests {
         let s: String = String::from("config.json");
         let config = DBConfig::load_db_config(s);
         let dm = DiskManager::new(&config);
-        let algo_lru = String::from("LRU");
+        let lru_policy = String::from("LRU");
 
-        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, algo_lru)));
+        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, lru_policy)));
 
-        let colinfo: Vec<ColInfo> = vec![
+        let column_info: Vec<ColInfo> = vec![
             ColInfo::new("NOM".to_string(), "VARCHAR(20)".to_string()),
             ColInfo::new("PRENOM".to_string(), "VARCHAR(20)".to_string()),
             ColInfo::new("AGE".to_string(), "INT".to_string()),
         ];
-        let mut relation = Relation::new("PERSONNE".to_string(), colinfo.clone(), buffer_manager);
+        let mut relation =
+            Relation::new("PERSONNE".to_string(), column_info.clone(), buffer_manager);
 
         let record1 = Record::new(vec![
             "SOK".to_string(),
@@ -812,13 +766,9 @@ mod tests {
         relation.write_record_to_data_page(record2, page_id.clone());
         relation.write_record_to_data_page(record3, page_id.clone());
 
-        let vec_record = relation.get_records_in_data_page(&page_id);
+        let records = relation.get_records_in_data_page(&page_id);
 
-        println!("{:?}", vec_record);
-
-        /*for field in vecRecord[0].get_tuple() {
-            println!("{}", field);
-        }*/
+        println!("{:?}", records);
     }
 
     #[test]
@@ -827,16 +777,17 @@ mod tests {
         let s: String = String::from("config.json");
         let config = DBConfig::load_db_config(s);
         let dm = DiskManager::new(&config);
-        let algo_lru = String::from("LRU");
+        let lru_policy = String::from("LRU");
 
-        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, algo_lru)));
+        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, lru_policy)));
 
-        let colinfo: Vec<ColInfo> = vec![
+        let column_info: Vec<ColInfo> = vec![
             ColInfo::new("NOM".to_string(), "VARCHAR(20)".to_string()),
             ColInfo::new("PRENOM".to_string(), "VARCHAR(20)".to_string()),
             ColInfo::new("AGE".to_string(), "INT".to_string()),
         ];
-        let mut relation = Relation::new("PERSONNE".to_string(), colinfo.clone(), buffer_manager);
+        let mut relation =
+            Relation::new("PERSONNE".to_string(), column_info.clone(), buffer_manager);
 
         relation.add_data_page();
         relation.add_data_page();
@@ -844,9 +795,9 @@ mod tests {
         relation.add_data_page();
         relation.add_data_page();
 
-        let vec_page = relation.get_data_pages();
+        let pages = relation.get_data_pages();
 
-        println!("{:?}", vec_page);
+        println!("{:?}", pages);
     }
 
     #[test]
@@ -855,16 +806,17 @@ mod tests {
         let s: String = String::from("config.json");
         let config = DBConfig::load_db_config(s);
         let dm = DiskManager::new(&config);
-        let algo_lru = String::from("LRU");
+        let lru_policy = String::from("LRU");
 
-        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, algo_lru)));
+        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, lru_policy)));
 
-        let colinfo: Vec<ColInfo> = vec![
+        let column_info: Vec<ColInfo> = vec![
             ColInfo::new("NOM".to_string(), "VARCHAR(20)".to_string()),
             ColInfo::new("PRENOM".to_string(), "VARCHAR(20)".to_string()),
             ColInfo::new("AGE".to_string(), "INT".to_string()),
         ];
-        let mut relation = Relation::new("PERSONNE".to_string(), colinfo.clone(), buffer_manager);
+        let mut relation =
+            Relation::new("PERSONNE".to_string(), column_info.clone(), buffer_manager);
 
         let record1 = Record::new(vec![
             "SOK".to_string(),
@@ -900,16 +852,17 @@ mod tests {
         let s: String = String::from("config.json");
         let config = DBConfig::load_db_config(s);
         let dm = DiskManager::new(&config);
-        let algo_lru = String::from("LRU");
+        let lru_policy = String::from("LRU");
 
-        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, algo_lru)));
+        let buffer_manager = Rc::new(RefCell::new(BufferManager::new(&config, dm, lru_policy)));
 
-        let colinfo: Vec<ColInfo> = vec![
+        let column_info: Vec<ColInfo> = vec![
             ColInfo::new("NOM".to_string(), "VARCHAR(20)".to_string()),
             ColInfo::new("PRENOM".to_string(), "VARCHAR(20)".to_string()),
             ColInfo::new("AGE".to_string(), "INT".to_string()),
         ];
-        let mut relation = Relation::new("PERSONNE".to_string(), colinfo.clone(), buffer_manager);
+        let mut relation =
+            Relation::new("PERSONNE".to_string(), column_info.clone(), buffer_manager);
 
         let record1 = Record::new(vec![
             "SOK".to_string(),
@@ -951,13 +904,13 @@ mod tests {
         let rid2 = relation.insert_record(record2);
         let rid3 = relation.insert_record(record3);
         let rid4 = relation.insert_record(record4);
-        let rid5 = relation.insert_record(record5);
-        let rid6 = relation.insert_record(record6);
-        let rid7 = relation.insert_record(record7);
+        let _rid5 = relation.insert_record(record5);
+        let _rid6 = relation.insert_record(record6);
+        let _rid7 = relation.insert_record(record7);
 
         let list_record = relation.get_all_records();
 
-        println!("Liste record : {:?}", list_record);
+        println!("Records : {:?}", list_record);
 
         println!(
             "RID tuple 1 : File idx {}, Page idx {}, Slot idx : {}",

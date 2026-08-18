@@ -7,7 +7,6 @@ pub struct PageInfo {
 }
 
 impl PageInfo {
-    //mettre un clone de pageid plutot qu'une ref
     pub fn new(page_id: PageId, pin_count: u32, dirty_bit: bool, time: i32) -> Self {
         Self {
             page_id,

@@ -3,27 +3,27 @@ use std::{collections::HashSet, str};
 
 use crate::col_info::ColInfo;
 use crate::condition::Condition;
-use crate::operator::ERREURS;
+use crate::operator::ERRORS;
 use crate::record::Record;
 
 #[derive(Debug, Clone)]
 pub struct Select {
     tables: Vec<String>,
-    colonnes: Vec<String>,
+    columns: Vec<String>,
     conditions: Vec<String>,
 }
 
 impl Select {
-    pub fn new(commande: &str) -> Result<Select, String> {
-        let sep_commande = Select::split_commande(commande);
-        if sep_commande.is_err() {
-            return Err(sep_commande.err().unwrap().to_string());
+    pub fn new(command: &str) -> Result<Select, String> {
+        let sep_command = Select::split_command(command);
+        if sep_command.is_err() {
+            return Err(sep_command.err().unwrap().to_string());
         }
-        let (colonnes, tables, conditions) = sep_commande.unwrap();
+        let (columns, tables, conditions) = sep_command.unwrap();
 
         let res = Select {
             tables,
-            colonnes,
+            columns,
             conditions,
         };
         if res.check_alias().is_err() {
@@ -35,46 +35,44 @@ impl Select {
     pub fn get_tables(&self) -> &Vec<String> {
         &self.tables
     }
-    pub fn get_colonnes(&self) -> &Vec<String> {
-        &self.colonnes
+    pub fn get_columns(&self) -> &Vec<String> {
+        &self.columns
     }
 
     pub fn to_string(&self) -> String {
         format!(
             "SELECT {}\nFROM {}\nWHERE {}",
-            self.colonnes.join(", "),
+            self.columns.join(", "),
             self.tables.join(", "),
             self.conditions.join(" AND ")
         )
     }
 
-    fn split_commande(commande: &str) -> Result<(Vec<String>, Vec<String>, Vec<String>), String> {
-        //Regex pour capturer les blocs SELECT, FROM, WHERE
+    fn split_command(command: &str) -> Result<(Vec<String>, Vec<String>, Vec<String>), String> {
+        // Parse each clause independently so malformed SELECT/FROM/WHERE input can be rejected early.
         let select_regex = Regex::new(r"(?i)\bselect\b\s+(.+?)\s+\bfrom\b").unwrap();
         let from_regex = Regex::new(r"(?i)\bfrom\b\s+(.+?)(?:\s+\bwhere\b|$)").unwrap();
         let where_regex = Regex::new(r"(?i)\bwhere\b\s+(.+)").unwrap();
 
-        // Extraire les blocs correspondants
         let select_bloc: &str = select_regex
-            .captures(commande)
+            .captures(command)
             .ok()
             .flatten()
             .and_then(|capture| capture.get(1).map(|match_| match_.as_str()))
             .unwrap_or("");
         let from_bloc: &str = from_regex
-            .captures(commande)
+            .captures(command)
             .ok()
             .flatten()
             .and_then(|capture| capture.get(1).map(|match_| match_.as_str()))
             .unwrap_or("");
         let where_bloc: &str = where_regex
-            .captures(commande)
+            .captures(command)
             .ok()
             .flatten()
             .and_then(|capture| capture.get(1).map(|match_| match_.as_str()))
             .unwrap_or("");
 
-        // Split des blocs
         let select_elements: Vec<String> = select_bloc
             .split(',')
             .map(|s| s.trim().to_string())
@@ -96,8 +94,7 @@ impl Select {
         {
             return Err("Error: malformed FROM clause.".to_string());
         }
-        // Vérification : chaque table dans FROM doit avoir un alias
-        // table alias
+
         let table_with_alias_regex = Regex::new(r"(?i)^[a-zA-Z0-9_.-]+\s+[a-zA-Z0-9_]+$").unwrap();
 
         for table in &from_elements {
@@ -106,8 +103,7 @@ impl Select {
             }
         }
 
-        // Vérifie si WHERE est mal formé
-        if commande.to_uppercase().contains("WHERE") && where_bloc.is_empty() {
+        if command.to_uppercase().contains("WHERE") && where_bloc.is_empty() {
             return Err("Error: WHERE clause is malformed or empty.".to_string());
         }
 
@@ -115,21 +111,17 @@ impl Select {
     }
 
     pub fn check_alias(&self) -> Result<(), String> {
-        // Extraire les alias des tables dans FROM
         let mut from_aliases: HashSet<String> = HashSet::new();
         for table in &self.tables {
-            //Vérifie s'il y a un alias ("table alias")
             if let Some((_, alias)) = table.split_once(' ') {
                 from_aliases.insert(alias.trim().to_string());
             } else {
-                // Si aucune alias explicite, utiliser le nom de la table
                 from_aliases.insert(table.trim().to_string());
             }
         }
 
-        // Vérifie si chaque colonne utilise un alias valide
-        for colonne in &self.colonnes {
-            if let Some((alias, _)) = colonne.split_once('.') {
+        for column in &self.columns {
+            if let Some((alias, _)) = column.split_once('.') {
                 if !from_aliases.contains(alias.trim()) {
                     return Err(format!(
                         "Error: SELECT alias \"{}\" is not defined in FROM.",
@@ -144,17 +136,16 @@ impl Select {
 
     pub fn get_list_conditions(
         &self,
-        colonnes: &Vec<ColInfo>,
+        columns: &Vec<ColInfo>,
         record: &Record,
     ) -> Result<Vec<Condition>, String> {
         let mut vec_cond: Vec<Condition> = Vec::new();
         for condition in &self.conditions {
-            // Vérifie si chaque colonne utilise un alias valide
-            let cond = Condition::check_syntaxe(condition.clone(), colonnes, record);
+            let cond = Condition::check_syntax(condition.clone(), columns, record);
             if cond.is_err() {
-                let erreur = cond.err().unwrap().to_string();
-                unsafe { ERREURS.push(erreur.clone()) };
-                return Err(erreur.clone());
+                let error = cond.err().unwrap().to_string();
+                unsafe { ERRORS.push(error.clone()) };
+                return Err(error.clone());
             }
             vec_cond.push(cond.unwrap());
         }
@@ -167,62 +158,56 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_alias_manquant() {
-        let commande = "SELECT t1.col1, table2.col2 FROM table1 t1, table2";
-        let res = Select::new(commande);
+    fn test_missing_alias() {
+        let command = "SELECT t1.col1, table2.col2 FROM table1 t1, table2";
+        let res = Select::new(command);
         assert!(
             res.is_err(),
-            "Une erreur devrait se produire car table2 n'a pas d'alias."
+            "Expected an error because table2 has no alias."
         );
     }
 
     #[test]
-    fn test_alias_invalide_dans_select() {
-        let commande = "SELECT t3.col1, t2.col2 FROM table1 t1, table2 t2";
-        let res = Select::new(commande);
+    fn test_invalid_select_alias() {
+        let command = "SELECT t3.col1, t2.col2 FROM table1 t1, table2 t2";
+        let res = Select::new(command);
         assert!(
             res.is_err(),
-            "Une erreur devrait se produire car t3 n'est pas défini dans FROM."
+            "Expected an error because t3 is not defined in FROM."
         );
     }
 
     #[test]
-    fn test_commande_mal_formee_sans_from() {
-        let commande = "SELECT col1";
-        let res = Select::new(commande);
+    fn test_command_malformed_without_from() {
+        let command = "SELECT col1";
+        let res = Select::new(command);
+        assert!(res.is_err(), "Expected an error because FROM is missing.");
+    }
+
+    #[test]
+    fn test_command_without_where() {
+        let command = "SELECT t1.col1 FROM table1 t1, table2 t2";
+        let res = Select::new(command);
         assert!(
             res.is_err(),
-            "Une erreur devrait se produire car FROM est manquant."
+            "Expected an error for this command without WHERE."
         );
     }
 
     #[test]
-    fn test_commande_valide_sans_where() {
-        let commande = "SELECT t1.col1 FROM table1 t1, table2 t2";
-        let res = Select::new(commande);
-        assert!(
-            res.is_err(),
-            "La commande sans WHERE est valide si les alias sont définis."
-        );
+    fn test_empty_command() {
+        let command = "";
+        let res = Select::new(command);
+        assert!(res.is_err(), "Expected an error for an empty command.");
     }
 
     #[test]
-    fn test_commande_vide() {
-        let commande = "";
-        let res = Select::new(commande);
+    fn test_malformed_from_with_where() {
+        let command = "SELECT t1.col1 FROM table1 t1 WHERE";
+        let res = Select::new(command);
         assert!(
             res.is_err(),
-            "Une erreur devrait se produire pour une commande vide."
-        );
-    }
-
-    #[test]
-    fn test_from_mal_forme_avec_where() {
-        let commande = "SELECT t1.col1 FROM table1 t1 WHERE";
-        let res = Select::new(commande);
-        assert!(
-            res.is_err(),
-            "Une erreur devrait se produire car WHERE est mal placé sans condition."
+            "Expected an error because WHERE has no condition."
         );
     }
 }

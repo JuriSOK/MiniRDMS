@@ -6,5 +6,6 @@ res/dbpath/BinData/*
 res/dbpath/dm.save
 res/dbpath/databases.json
 res/fichier_test_buffermanager
+res/file_test_buffermanager
 
 .DS_Store
