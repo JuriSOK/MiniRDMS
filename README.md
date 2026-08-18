@@ -212,6 +212,3 @@ The default `config.json` stores development data under `res/dbpath`.
 - [LETACONNOUX AYMERIC](https://github.com/Shrek1515)
 - [MEUNIER YOHANN](https://github.com/Ora-197)
 
-## Project Status
-
-MiniRDBMS is a portfolio and learning project. The current focus is preserving the existing educational implementation while presenting it clearly for an English-language developer audience.
