@@ -1,3 +1,5 @@
+//! Relation storage: encodes records, manages data pages, and scans table contents.
+
 use crate::buffer::Buffer;
 use crate::buffer_manager::BufferManager;
 use crate::col_info::ColInfo;
@@ -18,6 +20,7 @@ pub struct Relation<'a> {
 }
 
 impl<'a> Relation<'a> {
+    /// Creates a new relation and initializes its header page.
     pub fn new(name: String, columns: Vec<ColInfo>, bfm: Rc<RefCell<BufferManager<'a>>>) -> Self {
         let tmp = columns.len();
 
@@ -40,6 +43,7 @@ impl<'a> Relation<'a> {
         }
     }
 
+    /// Rebuilds a relation from catalog metadata without allocating new pages.
     pub fn from_saved(
         name: String,
         columns: Vec<ColInfo>,
@@ -55,18 +59,22 @@ impl<'a> Relation<'a> {
         }
     }
 
+    /// Returns the table name.
     pub fn get_name(&self) -> &String {
         &self.name
     }
 
+    /// Returns a copy of the relation schema.
     pub fn get_columns(&self) -> Vec<ColInfo> {
         self.columns.clone()
     }
 
+    /// Returns the header page used to find all data pages.
     pub fn get_header_page_id(&self) -> &PageId {
         return &self.header_page_id;
     }
 
+    /// Serializes a record into a page buffer and returns the number of bytes written.
     pub fn write_record_to_buffer(&self, record: Record, buffer: &mut Buffer, pos: usize) -> usize {
         let tuple = record.get_tuple().clone();
 
@@ -242,6 +250,7 @@ impl<'a> Relation<'a> {
         return counter;
     }
 
+    /// Deserializes one record from a page buffer and returns the number of bytes read.
     pub fn read_from_buffer(&self, record: &mut Record, buff: &Buffer, pos: usize) -> usize {
         let mut tuple: Vec<String> = Vec::new();
         let mut varchar = false;
@@ -330,6 +339,7 @@ impl<'a> Relation<'a> {
         return bytes_read as usize;
     }
 
+    /// Allocates a new data page and records it in the relation header page.
     pub fn add_data_page(&mut self) -> () {
         let mut buffer_manager = self.buffer_manager.borrow_mut();
         let remaining_bytes = buffer_manager
@@ -364,6 +374,7 @@ impl<'a> Relation<'a> {
         buffer_manager.flush_buffers();
     }
 
+    /// Finds the first data page with enough free space for a record.
     pub fn get_free_data_page_id(&self, size_record: usize) -> Option<PageId> {
         let mut buffer_manager = self.buffer_manager.borrow_mut();
 
@@ -404,6 +415,7 @@ impl<'a> Relation<'a> {
         return None;
     }
 
+    /// Writes a record into a specific data page and returns its record identifier.
     pub fn write_record_to_data_page(&mut self, record: Record, page_id: PageId) -> RecordId {
         let mut buffer_manager: std::cell::RefMut<'_, BufferManager<'a>> =
             self.buffer_manager.borrow_mut();
@@ -458,6 +470,7 @@ impl<'a> Relation<'a> {
         RecordId::new(page_id.clone(), (page_size as usize) - 8 - size_pos - 8)
     }
 
+    /// Reads every record stored in one data page.
     pub fn get_records_in_data_page(&self, page_id: &PageId) -> Vec<Record> {
         let mut buffer_manager: std::cell::RefMut<'_, BufferManager<'a>> =
             self.buffer_manager.borrow_mut();
@@ -487,6 +500,7 @@ impl<'a> Relation<'a> {
         return records;
     }
 
+    /// Reads all data page identifiers from the relation header page.
     pub fn get_data_pages(&self) -> Vec<PageId> {
         let mut page_infos = Vec::new();
         let mut buffer_manager = self.buffer_manager.borrow_mut();
@@ -505,6 +519,7 @@ impl<'a> Relation<'a> {
         return page_infos;
     }
 
+    /// Inserts a record into an existing page or allocates a new page when needed.
     pub fn insert_record(&mut self, record: Record) -> RecordId {
         let page_size = self
             .buffer_manager
@@ -533,6 +548,7 @@ impl<'a> Relation<'a> {
         }
     }
 
+    /// Scans every data page and returns all records in this relation.
     pub fn get_all_records(&self) -> Vec<Record> {
         let mut records = Vec::new();
         let data_pages = self.get_data_pages();

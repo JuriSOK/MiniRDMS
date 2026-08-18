@@ -1,3 +1,5 @@
+//! Interactive MiniRDBMS shell and command dispatcher.
+
 use crate::buffer_manager::BufferManager;
 use crate::col_info::ColInfo;
 use crate::condition::Condition;
@@ -22,6 +24,7 @@ pub struct MiniRdbms<'a> {
 }
 
 impl<'a> MiniRdbms<'a> {
+    /// Wires the disk, buffer, and catalog managers from the loaded configuration.
     pub fn new(db: &'a DBConfig) -> Self {
         let mut dk = DiskManager::new(db);
         let _ = dk.load_state();
@@ -40,6 +43,7 @@ impl<'a> MiniRdbms<'a> {
         }
     }
 
+    /// Reads CLI commands until QUIT and dispatches each command to the matching handler.
     pub fn run(&mut self) {
         let mut input: String = String::from("");
         while input != "q".to_string() {
@@ -104,6 +108,7 @@ impl<'a> MiniRdbms<'a> {
             }
         }
     }
+    /// Persists catalog and disk state before leaving the shell.
     pub fn process_quit_command(&mut self, _command: &String) {
         let _ = self.db_manager.borrow_mut().save_state();
         let dm = DiskManager::new(&self.dbconfig);
@@ -111,20 +116,24 @@ impl<'a> MiniRdbms<'a> {
         self.buffer_manager.borrow_mut().flush_buffers();
         println!("Goodbye.");
     }
+    /// Handles `CREATE DATABASE <name>`.
     pub fn process_create_database_command(&mut self, command: &String) {
         self.db_manager.borrow_mut().create_database(command);
         println!("Database {} created.", command);
     }
 
+    /// Handles `SET DATABASE <name>`.
     pub fn process_set_database_command(&mut self, command: &String) {
         self.db_manager.borrow_mut().set_current_database(command);
         println!("Current database is now: {}", command)
     }
 
+    /// Handles `LIST DATABASES`.
     pub fn process_list_databases_command(&mut self, _command: &String) {
         self.db_manager.borrow_mut().list_databases()
     }
 
+    /// Handles `CREATE TABLE <name> (<column>:<type>,...)`.
     pub fn process_create_table_command(&mut self, command: &String) {
         let mut dbm = self.db_manager.borrow_mut();
         let parts = command.split_whitespace().collect::<Vec<&str>>();
@@ -146,6 +155,7 @@ impl<'a> MiniRdbms<'a> {
         dbm.add_table_to_current_database(relation);
     }
 
+    /// Handles `DROP TABLE <name>` and releases the table pages.
     pub fn process_drop_table_command(&mut self, command: &String) {
         let mut dbm = self.db_manager.borrow_mut();
 
@@ -172,6 +182,7 @@ impl<'a> MiniRdbms<'a> {
         }
     }
 
+    /// Handles `DROP TABLES` for the current database.
     pub fn process_drop_tables_command(&mut self, _command: &String) {
         let mut dbm = self.db_manager.borrow_mut();
         match dbm.get_current_database() {
@@ -194,6 +205,7 @@ impl<'a> MiniRdbms<'a> {
         }
     }
 
+    /// Handles `DROP DATABASES` by dropping each database and its tables.
     pub fn process_drop_databases_command(&mut self, command: &String) {
         let database_names: Vec<String> = {
             let dbm = self.db_manager.borrow_mut();
@@ -212,6 +224,7 @@ impl<'a> MiniRdbms<'a> {
         println!("All databases dropped.");
     }
 
+    /// Handles `DROP DATABASE <name>`.
     pub fn process_drop_database_command(&mut self, command: &String) {
         let database_names: Vec<String> = {
             let dbm = self.db_manager.borrow_mut();
@@ -225,11 +238,13 @@ impl<'a> MiniRdbms<'a> {
         }
     }
 
+    /// Handles `LIST TABLES` for the current database.
     pub fn process_list_tables_command(&mut self, _command: &String) {
         let mut dbm = self.db_manager.borrow_mut();
         dbm.list_tables_in_current_database();
     }
 
+    /// Handles `INSERT INTO <table> VALUES (...)`.
     pub fn process_insert_command(&mut self, command: &String) {
         let mut database_manager = self.db_manager.borrow_mut();
 
@@ -260,13 +275,15 @@ impl<'a> MiniRdbms<'a> {
 
         for rel in relations {
             if rel.get_name().as_str() == relation_name {
-                rel.insert_record(Record::new(values));
+                let record_id = rel.insert_record(Record::new(values));
+                let _insert_location = (record_id.page_id, record_id.slot_idx);
                 break;
             }
         }
         println!("INSERT completed.");
     }
 
+    /// Handles `BULKINSERT INTO <table> <file>` by inserting each CSV line.
     pub fn process_bulk_insert_command(&mut self, command: &String) {
         let mut database_manager = self.db_manager.borrow_mut();
 
@@ -301,7 +318,8 @@ impl<'a> MiniRdbms<'a> {
                             values.push(val.to_string());
                         }
                     }
-                    rel.insert_record(Record::new(values));
+                    let record_id = rel.insert_record(Record::new(values));
+                    let _insert_location = (record_id.page_id, record_id.slot_idx);
                 }
                 break;
             }
@@ -309,6 +327,7 @@ impl<'a> MiniRdbms<'a> {
         println!("BULKINSERT completed.");
     }
 
+    /// Handles single-table `SELECT` queries through scan, filter, project, and print operators.
     pub fn process_select_command(&mut self, command: &String) {
         let mut dbm = self.db_manager.borrow_mut();
 
