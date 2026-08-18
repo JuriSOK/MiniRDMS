@@ -1,46 +1,30 @@
-mod config;
-mod page;
-mod disk_manager;
-mod buffer_manager;
-mod page_info;
-mod col_info;
-mod record;
-mod relation;
 mod buffer;
-mod record_id;
+mod buffer_manager;
+mod col_info;
+mod condition;
+mod config;
 mod data_base;
 mod db_manager;
-mod sgbd;
-mod condition;  
-mod types;
+mod disk_manager;
 mod operator;
+mod page;
+mod page_info;
+mod record;
+mod record_id;
+mod relation;
 mod select;
+mod sgbd;
+mod types;
 
-
-use config::DBConfig;
 use crate::page::PageId;
 use crate::sgbd::SGBD;
+use config::DBConfig;
 
 fn main() {
-
     let chemin_json = ("config.json").to_string();
     let dbc = DBConfig::load_db_config(chemin_json);
     let mut sgbd = SGBD::new(&dbc);
-    println!(" .----------------.  .----------------.  .----------------.  .----------------. ");
-    println!("| .--------------. || .--------------. || .--------------. || .--------------. |");
-    println!("| |    _______   | || |    ______    | || |   ______     | || |  ________    | |");
-    println!("| |   /  ___  |  | || |  .' ___  |   | || |  |_   _ \\    | || | |_   ___ `.  | |");
-    println!("| |  |  (__ \\_|  | || | / .'   \\_|   | || |    | |_) |   | || |   | |   `. \\ | |");
-    println!("| |   '.___`-.   | || | | |    ____  | || |    |  __'.   | || |   | |    | | | |");
-    println!("| |  |`\\____) |  | || | \\ `.___]  _| | || |   _| |__) |  | || |  _| |___.' / | |");
-    println!("| |  |_______.'  | || |  `._____.'   | || |  |_______/   | || | |________.'  | |");
-    println!("| |              | || |              | || |              | || |              | |");
-    println!("| '--------------' || '--------------' || '--------------' || '--------------' |");
-    println!(" '----------------'  '----------------'  '----------------'  '----------------' ");
+    println!("MiniRDBMS - Mini Relational Database Management System");
 
     sgbd.run();
-    
-   
 }
-
-    

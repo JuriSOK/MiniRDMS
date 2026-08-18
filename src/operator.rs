@@ -1,10 +1,9 @@
-use crate::record::Record;
-use crate::condition::Condition;
 use crate::col_info::ColInfo;
-use std::rc::Rc;
+use crate::condition::Condition;
+use crate::record::Record;
 use crate::select::Select;
 use once_cell::sync::Lazy;
-
+use std::rc::Rc;
 
 pub trait IRecordIterator {
     fn get_next_record(&mut self) -> Option<Record>;
@@ -13,8 +12,8 @@ pub trait IRecordIterator {
 }
 
 pub struct RelationScanner {
-    records: Vec<Record>,  // Liste des enregistrements de la relation
-    current_index: usize,  // Index courant dans la liste
+    records: Vec<Record>, // Liste des enregistrements de la relation
+    current_index: usize, // Index courant dans la liste
 }
 
 impl RelationScanner {
@@ -42,24 +41,22 @@ impl IRecordIterator for RelationScanner {
     }
 
     fn reset(&mut self) {
-        self.current_index = 0;  // Réinitialise l'index pour repartir du début
+        self.current_index = 0; // Réinitialise l'index pour repartir du début
     }
 }
 
-
 pub struct SelectOperator {
-    select: Select,  // Conditions de sélection
-    child_iterator: Box<dyn IRecordIterator>,  // L'opérateur fils (RelationScanner)
-    col_info: Rc<Vec<ColInfo>>,  // Les informations des colonnes
+    select: Select,                           // Conditions de sélection
+    child_iterator: Box<dyn IRecordIterator>, // L'opérateur fils (RelationScanner)
+    col_info: Rc<Vec<ColInfo>>,               // Les informations des colonnes
 }
 
 impl IRecordIterator for SelectOperator {
     fn get_next_record(&mut self) -> Option<Record> {
-        
         /*
         Explication du loop : Sans loop, si le le tuple renvoyer par get_next_record() ne passe pas les conditions,
         on ne peut renvoyer un None, car le None signifie qu'on a plus de tuple donnée par le RelationScanner.
-        Cela casserait donc les itérations. 
+        Cela casserait donc les itérations.
 
         Le loop, permet donc de toujours renvoyer au moins 1 tuple qui passe la condition, si ce n'est pas le cas, on a juste plus de tuple.
          */
@@ -68,10 +65,10 @@ impl IRecordIterator for SelectOperator {
             if let Some(record) = self.child_iterator.get_next_record() {
                 // Appliquer les conditions de sélection à l'enregistrement
                 if self.evaluate_conditions(&record) {
-                    return Some(record);  // Si l'enregistrement est valide, le retourner
+                    return Some(record); // Si l'enregistrement est valide, le retourner
                 }
             } else {
-                return None;  // Si aucun enregistrement, terminer
+                return None; // Si aucun enregistrement, terminer
             }
         }
     }
@@ -89,13 +86,22 @@ impl IRecordIterator for SelectOperator {
 
 impl SelectOperator {
     // Crée une nouvelle instance de SelectOperator
-    pub fn new(select:Select, child_iterator: Box<dyn IRecordIterator>, col_info: Rc<Vec<ColInfo>>) -> Self {
-        SelectOperator { select, child_iterator, col_info }
+    pub fn new(
+        select: Select,
+        child_iterator: Box<dyn IRecordIterator>,
+        col_info: Rc<Vec<ColInfo>>,
+    ) -> Self {
+        SelectOperator {
+            select,
+            child_iterator,
+            col_info,
+        }
     }
 
     // Applique les conditions de sélection sur l'enregistrement
     fn evaluate_conditions(&self, record: &Record) -> bool {
-        let liste_conditions: &Result<Vec<Condition>, String> = &self.select.get_list_conditions(&self.col_info, record);
+        let liste_conditions: &Result<Vec<Condition>, String> =
+            &self.select.get_list_conditions(&self.col_info, record);
 
         if liste_conditions.is_err() {
             return false;
@@ -104,23 +110,26 @@ impl SelectOperator {
         for condition in liste_conditions {
             // Passer les informations des colonnes à chaque condition pour l'évaluation
             if !condition.evaluate() {
-                return false;  // Si une condition échoue, l'enregistrement est rejeté
+                return false; // Si une condition échoue, l'enregistrement est rejeté
             }
         }
-        true  // Si toutes les conditions sont satisfaites
+        true // Si toutes les conditions sont satisfaites
     }
 }
 
-
 pub struct ProjectionOperator {
-    columns_to_project: Vec<String>,  // Liste des colonnes à garder
-    child_iterator: Box<dyn IRecordIterator>,  // L'opérateur fils (par exemple, SelectOperator)
-    col_info: Rc<Vec<ColInfo>>,  // Les informations des colonnes
+    columns_to_project: Vec<String>, // Liste des colonnes à garder
+    child_iterator: Box<dyn IRecordIterator>, // L'opérateur fils (par exemple, SelectOperator)
+    col_info: Rc<Vec<ColInfo>>,      // Les informations des colonnes
 }
 
 impl ProjectionOperator {
     // Crée un opérateur de projection
-    pub fn new(columns_to_project: Vec<String>, child_iterator: Box<dyn IRecordIterator>, col_info: Rc<Vec<ColInfo>>) -> Self {
+    pub fn new(
+        columns_to_project: Vec<String>,
+        child_iterator: Box<dyn IRecordIterator>,
+        col_info: Rc<Vec<ColInfo>>,
+    ) -> Self {
         ProjectionOperator {
             columns_to_project,
             child_iterator,
@@ -130,11 +139,15 @@ impl ProjectionOperator {
 
     // Applique la projection sur un enregistrement
     fn project_columns(&self, record: &Record) -> Record {
-        let mut projected_tuple = Vec::new();  // Un nouvel enregistrement pour les colonnes projetées
+        let mut projected_tuple = Vec::new(); // Un nouvel enregistrement pour les colonnes projetées
 
         for col_name in &self.columns_to_project {
             // Récupérer l'index de la colonne via les informations des colonnes
-            if let Some(index) = self.col_info.iter().position(|col| col.get_name() == col_name) {
+            if let Some(index) = self
+                .col_info
+                .iter()
+                .position(|col| col.get_name() == col_name)
+            {
                 // Utiliser l'index pour obtenir la valeur de la colonne dans le record
                 projected_tuple.push(record.get_value(index).clone());
             }
@@ -147,7 +160,7 @@ impl ProjectionOperator {
 impl IRecordIterator for ProjectionOperator {
     fn get_next_record(&mut self) -> Option<Record> {
         if let Some(record) = self.child_iterator.get_next_record() {
-            Some(self.project_columns(&record))  // Projeter les colonnes et retourner le nouvel enregistrement
+            Some(self.project_columns(&record)) // Projeter les colonnes et retourner le nouvel enregistrement
         } else {
             None
         }
@@ -163,8 +176,8 @@ impl IRecordIterator for ProjectionOperator {
 }
 
 pub struct RecordPrinter<'a> {
-    iterator: Box<dyn IRecordIterator + 'a>,   // L'itérateur qui fournit les enregistrements
-    total : usize,
+    iterator: Box<dyn IRecordIterator + 'a>, // L'itérateur qui fournit les enregistrements
+    total: usize,
 }
 
 pub static mut ERREURS: Lazy<Vec<String>> = Lazy::new(|| Vec::new());
@@ -172,7 +185,7 @@ pub static mut ERREURS: Lazy<Vec<String>> = Lazy::new(|| Vec::new());
 impl<'a> RecordPrinter<'a> {
     // Constructeur de RecordPrinter qui prend un IRecordIterator
     pub fn new(iterator: Box<dyn IRecordIterator + 'a>) -> Self {
-        RecordPrinter { iterator, total : 0}
+        RecordPrinter { iterator, total: 0 }
     }
 
     // Affiche les enregistrements un par un
@@ -181,13 +194,15 @@ impl<'a> RecordPrinter<'a> {
         while let Some(record) = self.iterator.get_next_record() {
             // Afficher le tuple du record
             self.print_record(&record);
-            self.total+= 1;
+            self.total += 1;
         }
 
-        if(unsafe{ERREURS.len()}>0){
-            println!("\nErreur(s) : {}",unsafe{ERREURS.get(0).unwrap()});
-            unsafe{ERREURS.clear();}
-        }else{
+        if (unsafe { ERREURS.len() } > 0) {
+            println!("\nError(s): {}", unsafe { ERREURS.get(0).unwrap() });
+            unsafe {
+                ERREURS.clear();
+            }
+        } else {
             println!("\nTotal records =  {}", self.total);
         }
     }
@@ -204,7 +219,7 @@ impl<'a> RecordPrinter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_relation_scanner() {
         let record1 = Record::new(vec!["1".to_string(), "John".to_string()]);
@@ -214,11 +229,19 @@ mod tests {
 
         // Test de l'itérateur pour obtenir le premier enregistrement
         let result = scanner.get_next_record();
-        assert_eq!(result, Some(record1), "Le premier enregistrement devrait être correct.");
+        assert_eq!(
+            result,
+            Some(record1),
+            "Le premier enregistrement devrait être correct."
+        );
 
         // Test de l'itérateur pour obtenir le second enregistrement
         let result = scanner.get_next_record();
-        assert_eq!(result, Some(record2), "Le deuxième enregistrement devrait être correct.");
+        assert_eq!(
+            result,
+            Some(record2),
+            "Le deuxième enregistrement devrait être correct."
+        );
 
         // Test de la fin de l'itérateur
         let result = scanner.get_next_record();
@@ -226,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    
+
     fn test_record_printer() {
         let record1 = Record::new(vec!["1".to_string(), "John".to_string()]);
         let record2 = Record::new(vec!["2".to_string(), "Jane".to_string()]);
@@ -237,14 +260,15 @@ mod tests {
         ]);
 
         let scanner = Box::new(RelationScanner::new(records));
-        let projection_operator = ProjectionOperator::new(vec!["id".to_string(), "name".to_string()], scanner, col_info);
+        let projection_operator = ProjectionOperator::new(
+            vec!["id".to_string(), "name".to_string()],
+            scanner,
+            col_info,
+        );
         let mut printer = RecordPrinter::new(Box::new(projection_operator));
 
-        // On ne peut pas vérifier directement avec println! sans capture du résultat. 
+        // On ne peut pas vérifier directement avec println! sans capture du résultat.
         // Pour un test d'affichage, il faudrait rediriger la sortie stdout.
-        printer.print_records();  // On s'assure que la méthode fonctionne sans erreurs
+        printer.print_records(); // On s'assure que la méthode fonctionne sans erreurs
     }
-
-
 }
-

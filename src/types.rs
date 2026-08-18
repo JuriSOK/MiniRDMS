@@ -68,12 +68,11 @@ impl Operande for Number {
 }
 
 impl Chars {
-    pub fn new(s: &str) -> Self{
+    pub fn new(s: &str) -> Self {
         Self {
             valeur: s.to_string(),
         }
     }
-   
 }
 
 impl Operande for Chars {
@@ -120,10 +119,9 @@ mod tests {
         let num3 = Number::new("10.5");
 
         assert_eq!(num1.compare(Box::new(num2.clone())), -1); // num1 < num2
-        assert_eq!(num2.compare(Box::new(num1.clone())), 1);  // num2 > num1
-        assert_eq!(num1.compare(Box::new(num3.clone())), 0);  // num1 == num3
+        assert_eq!(num2.compare(Box::new(num1.clone())), 1); // num2 > num1
+        assert_eq!(num1.compare(Box::new(num3.clone())), 0); // num1 == num3
     }
-
 
     #[test]
     fn test_mixed_compare() {
@@ -140,7 +138,6 @@ mod tests {
         let valid_num = Number::new("10.0");
 
         assert_eq!(invalid_num.compare(Box::new(valid_num.clone())), -1); // -1 car invalide
-        assert_eq!(valid_num.compare(Box::new(invalid_num.clone())), 1);  // nb valide > nb invalide
+        assert_eq!(valid_num.compare(Box::new(invalid_num.clone())), 1); // nb valide > nb invalide
     }
-
 }

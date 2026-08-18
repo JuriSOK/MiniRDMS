@@ -1,8 +1,7 @@
 {
-	"dbpath" : "Scenario0",
-    	"pagesize" : "La taille d'une page",
-	"dm_maxfilesize" : "La taille d'un fichier d'enregistrement",
-	"bm_buffer_count" : "Le nombre de buffer dans un buffer pool (Buffer Manager)",
-	"bm_policy" :"L'algorithme de changement de pages (LRU,MRU) "
-
+  "dbpath": "res/dbpath",
+  "pagesize": "4096",
+  "dm_maxfilesize": "65536",
+  "bm_buffer_count": "4",
+  "bm_policy": "LRU"
 }
